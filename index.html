@@ -3,21 +3,50 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
-<title>Bibliothèque — Lecture intelligente</title>
-<meta name="description" content="Liseuse EPUB/PDF hors-ligne, avec objectifs de lecture et suivi intelligent.">
+<title>Elikia Lecture — Lecture intelligente</title>
+<meta name="description" content="Elikia Lecture — liseuse EPUB/PDF hors-ligne, avec objectifs de lecture et suivi intelligent.">
 <meta name="theme-color" content="#12141c">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="Bibliothèque">
+<meta name="apple-mobile-web-app-title" content="Elikia Lecture">
 <link rel="manifest" href="manifest.json">
-<link rel="apple-touch-icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
 <link rel="icon" href="icons/icon-512.png">
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/epub.js/0.3.93/epub.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<!-- Écrans de démarrage iOS (générés automatiquement sur les autres tailles par iOS 15+ à partir du manifest) -->
+<link rel="apple-touch-startup-image" href="icons/splash-1284x2778.png" media="(device-width: 428px) and (device-height: 926px) and (-webkit-device-pixel-ratio: 3)">
+<link rel="apple-touch-startup-image" href="icons/splash-1179x2556.png" media="(device-width: 393px) and (device-height: 852px) and (-webkit-device-pixel-ratio: 3)">
+<link rel="apple-touch-startup-image" href="icons/splash-1170x2532.png" media="(device-width: 390px) and (device-height: 844px) and (-webkit-device-pixel-ratio: 3)">
+<link rel="apple-touch-startup-image" href="icons/splash-1125x2436.png" media="(device-width: 375px) and (device-height: 812px) and (-webkit-device-pixel-ratio: 3)">
+<link rel="apple-touch-startup-image" href="icons/splash-828x1792.png" media="(device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 2)">
+
+<script src="vendor/jszip.min.js"></script>
+<script src="vendor/epub.min.js"></script>
+<script src="vendor/pdf.min.js"></script>
 
 <style>
+/* Police dyslexie hébergée en local (aucune dépendance CDN) */
+@font-face{
+  font-family:'OpenDyslexic';
+  src:url('vendor/fonts/OpenDyslexic-Regular.woff') format('woff');
+  font-weight:400; font-style:normal; font-display:swap;
+}
+@font-face{
+  font-family:'OpenDyslexic';
+  src:url('vendor/fonts/OpenDyslexic-Bold.woff') format('woff');
+  font-weight:700; font-style:normal; font-display:swap;
+}
+@font-face{
+  font-family:'OpenDyslexic';
+  src:url('vendor/fonts/OpenDyslexic-Italic.woff') format('woff');
+  font-weight:400; font-style:italic; font-display:swap;
+}
+@font-face{
+  font-family:'OpenDyslexic';
+  src:url('vendor/fonts/OpenDyslexic-BoldItalic.woff') format('woff');
+  font-weight:700; font-style:italic; font-display:swap;
+}
+
 /* ===================== Design tokens ===================== */
 :root{
   --ink-950:#0c0d12;
@@ -74,17 +103,18 @@ a{color:inherit;}
   width:36px;height:36px;border-radius:9px;
   background:var(--paper-050); margin-bottom:14px;
   display:flex;align-items:center;justify-content:center;
-  font-family:var(--font-display); font-weight:700; color:var(--ink-900); font-size:17px;
+  font-family:var(--font-display); font-weight:700; color:var(--ink-900); font-size:13px; letter-spacing:-0.5px;
 }
 .spine-btn{
-  width:48px; height:48px; border-radius:12px; border:none; background:transparent;
+  width:56px; height:52px; border-radius:12px; border:none; background:transparent;
   color:var(--paper-100); opacity:.55; cursor:pointer;
-  display:flex; align-items:center; justify-content:center; font-size:20px;
-  transition: all .15s ease;
+  display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px;
+  font-size:19px; line-height:1; transition: all .15s ease; flex-shrink:0;
 }
 .spine-btn:hover{ opacity:.9; background:var(--ink-700); }
+.spine-btn:active{ transform:scale(.93); }
 .spine-btn.active{ opacity:1; background:var(--ink-700); color:var(--ember-light); }
-.spine-btn small{ display:block; font-size:9px; margin-top:2px; }
+.spine-btn small{ display:block; font-size:9px; line-height:1; white-space:nowrap; font-weight:500; letter-spacing:.2px; }
 .spine-spacer{flex:1;}
 
 #main{ flex:1; min-width:0; display:flex; flex-direction:column; position:relative; overflow:hidden; }
@@ -127,9 +157,9 @@ select:focus, input:focus{ border-color:var(--moss-light); }
 .book-card{
   cursor:pointer; position:relative; border-radius:10px; overflow:hidden;
   background:var(--ink-800); border:1px solid var(--ink-line);
-  transition:transform .15s ease;
+  transition:transform .15s ease, box-shadow .15s ease;
 }
-.book-card:hover{ transform:translateY(-3px); }
+.book-card:hover{ transform:translateY(-3px); box-shadow:0 10px 24px rgba(0,0,0,.35); }
 .book-cover{
   width:100%; aspect-ratio:2/3; object-fit:cover; display:block; background:var(--ink-700);
 }
@@ -194,9 +224,14 @@ select:focus, input:focus{ border-color:var(--moss-light); }
 #reader-view{ position:fixed; inset:0; background:var(--ink-900); z-index:50; display:none; flex-direction:column; }
 #reader-view.active{ display:flex; }
 #reader-topbar{
-  display:flex; align-items:center; gap:8px; padding:10px 14px; border-bottom:1px solid var(--ink-line);
-  background:var(--ink-950); flex-wrap:wrap;
+  display:flex; align-items:center; gap:4px; padding:10px 14px; border-bottom:1px solid var(--ink-line);
+  background:var(--ink-950); flex-wrap:nowrap; overflow-x:auto; -webkit-overflow-scrolling:touch;
+  transition: transform .25s ease, opacity .2s ease;
 }
+#reader-progress-track{ transition: transform .25s ease, opacity .2s ease; }
+#reader-view.immersive #reader-topbar{ transform:translateY(-100%); opacity:0; pointer-events:none; position:absolute; top:0; left:0; right:0; }
+#reader-view.immersive #reader-progress-track{ opacity:0; pointer-events:none; }
+#reader-view.immersive #reader-body{ height:100%; }
 #reader-title{ font-family:var(--font-display); font-size:14px; opacity:.85; margin-right:auto; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:34vw; }
 #reader-body{ flex:1; min-height:0; position:relative; overflow:hidden; }
 #reader-progress-track{ height:3px; background:var(--ink-800); }
@@ -214,12 +249,22 @@ select:focus, input:focus{ border-color:var(--moss-light); }
 
 #brightness-overlay{ position:fixed; inset:0; background:#000; opacity:0; pointer-events:none; z-index:60; }
 
+#immersive-exit-btn{
+  display:none; position:absolute; top:calc(10px + env(safe-area-inset-top)); right:10px; z-index:45;
+  width:34px; height:34px; border-radius:50%; border:none; background:rgba(0,0,0,.45); color:#fff;
+  font-size:14px; cursor:pointer; opacity:.55;
+}
+#reader-view.immersive #immersive-exit-btn{ display:block; }
+
 .reader-btn{
   background:none; border:none; color:var(--paper-050); opacity:.7; cursor:pointer; font-size:15px;
   padding:8px 9px; border-radius:8px; display:flex; align-items:center; gap:5px;
+  flex-shrink:0; white-space:nowrap;
 }
 .reader-btn:hover{ opacity:1; background:var(--ink-800); }
+.reader-btn:active{ transform:scale(.93); }
 .reader-btn.on{ opacity:1; color:var(--ember-light); background:var(--ink-800); }
+#reader-title{ flex-shrink:1; }
 
 #settings-panel, #toc-panel, #search-panel, #notes-panel{
   position:absolute; top:0; right:0; bottom:0; width:320px; max-width:88vw;
@@ -248,17 +293,30 @@ input[type="range"]{ width:100%; accent-color:var(--ember); }
 .note-item .note-quote{ opacity:.6; font-style:italic; margin-bottom:4px; }
 
 @media (max-width: 720px){
-  #spine{ width:100%; height:60px; min-width:unset; flex-direction:row; padding:0 8px; overflow-x:auto; border-right:none; border-top:1px solid var(--ink-line); order:2; }
+  #spine{
+    width:100%; height:auto; min-height:64px; min-width:unset; flex-direction:row;
+    padding:6px 6px calc(6px + env(safe-area-inset-bottom)); overflow-x:auto; -webkit-overflow-scrolling:touch;
+    border-right:none; border-top:1px solid var(--ink-line); order:2;
+    justify-content:space-evenly; align-items:center; gap:2px;
+  }
+  #spine::-webkit-scrollbar{ display:none; }
   #spine::after{ left:0; right:0; top:0; bottom:auto; width:auto; height:3px; }
   .spine-brand{ display:none; }
   .spine-spacer{ display:none; }
   #app{ flex-direction:column; }
   #main{ order:1; }
-  .topbar{ padding:16px 16px 6px; }
+  .topbar{ padding:calc(16px + env(safe-area-inset-top)) 16px 6px; }
   .controls-row{ padding:0 16px 12px; }
   #library-grid{ padding:6px 16px 30px; grid-template-columns:repeat(auto-fill,minmax(110px,1fr)); gap:14px;}
   .stats-grid{ padding:6px 16px 30px; }
-  #settings-panel, #toc-panel, #search-panel, #notes-panel{ width:100%; max-width:100%; }
+  #settings-panel, #toc-panel, #search-panel, #notes-panel{ width:100%; max-width:100%; padding-top:calc(20px + env(safe-area-inset-top)); }
+  #reader-topbar{ padding:calc(10px + env(safe-area-inset-top)) 10px 10px; flex-wrap:nowrap; overflow-x:auto; -webkit-overflow-scrolling:touch; }
+  #reader-topbar::-webkit-scrollbar{ display:none; }
+  #reader-title{ max-width:26vw; }
+  .book-delete{ opacity:.85; }
+}
+@media (hover:none){
+  .book-delete{ opacity:.85; }
 }
 
 .toast{
@@ -275,7 +333,7 @@ input[type="range"]{ width:100%; accent-color:var(--ember); }
 <div id="app">
   <!-- SPINE NAVIGATION -->
   <nav id="spine">
-    <div class="spine-brand">B</div>
+    <div class="spine-brand">EL</div>
     <button class="spine-btn active" data-view="view-library" title="Bibliothèque">📚<small>Livres</small></button>
     <button class="spine-btn" data-view="view-stats" title="Objectifs">🎯<small>Objectifs</small></button>
     <button class="spine-btn" id="btn-storage" title="Stockage">💾<small>Stockage</small></button>
@@ -341,6 +399,7 @@ input[type="range"]{ width:100%; accent-color:var(--ember); }
     <button class="reader-btn" id="reader-notes-btn" title="Notes & surlignages">✎</button>
     <button class="reader-btn" id="reader-tts-btn" title="Lecture audio">🔊</button>
     <button class="reader-btn" id="reader-settings-btn" title="Réglages">⚙️</button>
+    <button class="reader-btn" id="reader-fullscreen-btn" title="Plein écran / masquer les barres">⤢</button>
   </div>
   <div id="reader-progress-track"><div id="reader-progress-fill"></div></div>
   <div id="reader-body">
@@ -350,6 +409,7 @@ input[type="range"]{ width:100%; accent-color:var(--ember); }
       <div id="pdf-reflow-wrap" class="hidden"><div id="pdf-reflow-content"></div></div>
     </div>
     <div class="reader-tint" id="reader-tint"></div>
+    <button id="immersive-exit-btn" title="Afficher les barres">⤡</button>
 
     <!-- SETTINGS PANEL -->
     <div id="settings-panel">
@@ -381,6 +441,14 @@ input[type="range"]{ width:100%; accent-color:var(--ember); }
       <div class="setting-group">
         <label>Interligne</label>
         <input type="range" id="range-lineheight" min="1.1" max="2.2" step="0.1" value="1.5">
+      </div>
+
+      <div class="setting-group">
+        <label>Alignement du texte</label>
+        <div class="seg-control" id="align-control">
+          <button data-align="left" class="active">Gauche</button>
+          <button data-align="justify">Justifié</button>
+        </div>
       </div>
 
       <div class="setting-group">
@@ -475,6 +543,10 @@ input[type="range"]{ width:100%; accent-color:var(--ember); }
         <input type="number" id="goal-hours" min="0" step="0.5" value="3">
       </div>
     </div>
+    <div class="field">
+      <label>Livres associés à cet objectif (facultatif)</label>
+      <div id="goal-books-list" style="max-height:180px;overflow:auto;border:1px solid var(--ink-line);border-radius:10px;padding:8px;"></div>
+    </div>
     <button class="btn primary" id="save-goal-btn" style="width:100%;">Enregistrer l'objectif</button>
   </div>
 </div>
@@ -484,10 +556,15 @@ input[type="range"]{ width:100%; accent-color:var(--ember); }
   <div class="modal">
     <button class="modal-close" data-close-modal="modal-backup">×</button>
     <h2>Sauvegarde & synchronisation</h2>
-    <p class="sub" style="margin-top:-6px;">Tout reste en local sur cet appareil. Exportez votre progression, vos objectifs et vos statistiques pour les retrouver après une réinstallation ou sur un autre appareil (les fichiers de livres eux-mêmes ne sont pas inclus, trop volumineux — réimportez-les séparément).</p>
-    <button class="btn primary" id="export-backup-btn" style="width:100%;margin:14px 0 10px;">⇩ Exporter une sauvegarde (.json)</button>
+    <p class="sub" style="margin-top:-6px;">Tout reste en local sur cet appareil, sans aucun serveur. Deux options : une sauvegarde légère (progression, objectifs, statistiques) à réimporter avec vos livres déjà présents, ou une archive complète incluant les fichiers EPUB/PDF eux-mêmes pour tout restaurer d'un coup sur un autre appareil.</p>
+    <button class="btn primary" id="export-backup-btn" style="width:100%;margin:14px 0 10px;">⇩ Exporter une sauvegarde légère (.json)</button>
+    <button class="btn accent" id="export-full-backup-btn" style="width:100%;margin-bottom:10px;">⇩ Exporter la bibliothèque complète (.zip, avec les livres)</button>
     <input type="file" id="import-backup-input" accept=".json" style="display:none;">
-    <button class="btn" id="import-backup-btn" style="width:100%;">⇧ Restaurer depuis une sauvegarde</button>
+    <button class="btn" id="import-backup-btn" style="width:100%;margin-bottom:8px;">⇧ Restaurer une sauvegarde légère (.json)</button>
+    <input type="file" id="import-full-backup-input" accept=".zip" style="display:none;">
+    <button class="btn" id="import-full-backup-btn" style="width:100%;">⇧ Restaurer une bibliothèque complète (.zip)</button>
+    <div class="note-block">La sauvegarde .zip contient les fichiers EPUB/PDF eux-mêmes : elle peut être volumineuse mais permet une restauration totale, sans rien réimporter à la main, en la transférant simplement (câble, AirDrop, clé USB…) — toujours sans passer par un serveur.</div>
+    <div id="full-backup-progress" class="sub" style="margin-top:8px;"></div>
   </div>
 </div>
 
@@ -500,6 +577,18 @@ input[type="range"]{ width:100%; accent-color:var(--ember); }
   </div>
 </div>
 
+<!-- CONFIRM MODAL (générique, remplace les confirm() natifs) -->
+<div class="modal-overlay" id="modal-confirm">
+  <div class="modal" style="max-width:380px;">
+    <h2 id="confirm-title">Confirmer</h2>
+    <p class="sub" id="confirm-message" style="margin-top:-4px;"></p>
+    <div style="display:flex;gap:10px;margin-top:18px;">
+      <button class="btn" id="confirm-cancel-btn" style="flex:1;">Annuler</button>
+      <button class="btn danger" id="confirm-ok-btn" style="flex:1;background:var(--ember);color:#fff;border-color:var(--ember);">Confirmer</button>
+    </div>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <script>
@@ -507,7 +596,7 @@ window.onerror = function(){ /* fail quietly in UI, keep app usable */ };
 </script>
 <script>
 /* =========================================================================
-   Bibliothèque — Application de lecture EPUB/PDF (PWA, 100% locale)
+   Elikia Lecture — Application de lecture EPUB/PDF (PWA, 100% locale)
    Toutes les données (livres, progression, notes, objectifs) restent
    sur l'appareil : IndexedDB pour les fichiers, aucune requête serveur.
    ========================================================================= */
@@ -518,7 +607,7 @@ if ('serviceWorker' in navigator) {
   });
 }
 if (window.pdfjsLib) {
-  pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+  pdfjsLib.GlobalWorkerOptions.workerSrc = 'vendor/pdf.worker.min.js';
 }
 
 /* ---------------------------- IndexedDB ---------------------------- */
@@ -591,10 +680,36 @@ function toast(msg, ms = 2600) {
 }
 function openModal(id) { document.getElementById(id).classList.add('active'); }
 function closeModal(id) { document.getElementById(id).classList.remove('active'); }
+
+function confirmDialog(message, opts = {}) {
+  return new Promise((resolve) => {
+    document.getElementById('confirm-title').textContent = opts.title || 'Confirmer';
+    document.getElementById('confirm-message').textContent = message;
+    document.getElementById('confirm-ok-btn').textContent = opts.okLabel || 'Confirmer';
+    document.getElementById('confirm-cancel-btn').textContent = opts.cancelLabel || 'Annuler';
+    openModal('modal-confirm');
+    const okBtn = document.getElementById('confirm-ok-btn');
+    const cancelBtn = document.getElementById('confirm-cancel-btn');
+    const cleanup = (result) => {
+      okBtn.removeEventListener('click', onOk);
+      cancelBtn.removeEventListener('click', onCancel);
+      closeModal('modal-confirm');
+      resolve(result);
+    };
+    const onOk = () => cleanup(true);
+    const onCancel = () => cleanup(false);
+    okBtn.addEventListener('click', onOk);
+    cancelBtn.addEventListener('click', onCancel);
+  });
+}
 document.querySelectorAll('[data-close-modal]').forEach((b) =>
   b.addEventListener('click', () => closeModal(b.dataset.closeModal)));
 document.querySelectorAll('.modal-overlay').forEach((ov) =>
-  ov.addEventListener('click', (e) => { if (e.target === ov) ov.classList.remove('active'); }));
+  ov.addEventListener('click', (e) => {
+    if (e.target !== ov) return;
+    if (ov.id === 'modal-confirm') { document.getElementById('confirm-cancel-btn').click(); return; }
+    ov.classList.remove('active');
+  }));
 
 function switchView(viewId) {
   document.querySelectorAll('.view').forEach((v) => v.classList.remove('active'));
@@ -640,6 +755,7 @@ async function handleFiles(fileList) {
   fileInput.value = '';
   closeModal('modal-import');
   renderLibrary();
+  ensurePersistentStorage(true);
 }
 
 async function importEpub(file) {
@@ -763,7 +879,8 @@ async function renderLibrary() {
     });
     card.querySelector('.book-delete').addEventListener('click', async (e) => {
       e.stopPropagation();
-      if (confirm(`Supprimer « ${book.title} » de la bibliothèque ?`)) {
+      const ok = await confirmDialog(`Supprimer « ${book.title} » de la bibliothèque ? Cette action est irréversible.`, { title: 'Supprimer ce livre ?', okLabel: 'Supprimer' });
+      if (ok) {
         await idbDelete('books', book.id);
         await idbDelete('progress', book.id);
         await idbDelete('reflowCache', book.id);
@@ -817,11 +934,125 @@ document.getElementById('import-backup-input').addEventListener('change', async 
   e.target.value = '';
 });
 
+/* ---- Sauvegarde complète (.zip, avec les fichiers de livres) — tout reste local ---- */
+document.getElementById('export-full-backup-btn').addEventListener('click', async () => {
+  const progressEl = document.getElementById('full-backup-progress');
+  try {
+    const [books, progress, sessions, notes, settings] = await Promise.all([
+      idbGetAll('books'), idbGetAll('progress'), idbGetAll('sessions'), idbGetAll('notes'), idbGetAll('settings'),
+    ]);
+    const zip = new JSZip();
+    const manifestBooks = [];
+    let i = 0;
+    for (const b of books) {
+      i++;
+      progressEl.textContent = `Compression : « ${b.title} » (${i}/${books.length})…`;
+      const ext = b.format === 'epub' ? 'epub' : 'pdf';
+      const fileName = `files/${b.id}.${ext}`;
+      zip.file(fileName, b.fileBlob);
+      let coverName = null;
+      if (b.coverBlob) {
+        coverName = `covers/${b.id}.jpg`;
+        zip.file(coverName, b.coverBlob);
+      }
+      manifestBooks.push({
+        id: b.id, title: b.title, author: b.author, format: b.format,
+        addedAt: b.addedAt, favorite: b.favorite, collection: b.collection, totalPages: b.totalPages,
+        fileName, coverName,
+      });
+    }
+    progressEl.textContent = 'Finalisation de l’archive…';
+    const manifest = { version: 1, exportedAt: Date.now(), books: manifestBooks, progress, sessions, notes, settings };
+    zip.file('manifest.json', JSON.stringify(manifest, null, 2));
+    const blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 6 } },
+      (meta) => { progressEl.textContent = `Compression… ${Math.round(meta.percent)}%`; });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `elikia-lecture-bibliotheque-${dateKey()}.zip`;
+    a.click();
+    progressEl.textContent = '';
+    toast('Bibliothèque complète exportée.');
+  } catch (err) {
+    console.error(err);
+    progressEl.textContent = '';
+    toast("Échec de l'export complet (bibliothèque peut-être trop volumineuse pour la mémoire du navigateur).", 4200);
+  }
+});
+document.getElementById('import-full-backup-btn').addEventListener('click', () => document.getElementById('import-full-backup-input').click());
+document.getElementById('import-full-backup-input').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const progressEl = document.getElementById('full-backup-progress');
+  try {
+    progressEl.textContent = 'Lecture de l’archive…';
+    const zip = await JSZip.loadAsync(file);
+    const manifestEntry = zip.file('manifest.json');
+    if (!manifestEntry) throw new Error('manifest.json manquant dans l’archive');
+    const manifest = JSON.parse(await manifestEntry.async('string'));
+
+    for (const p of manifest.progress || []) await idbPut('progress', p);
+    for (const s of manifest.sessions || []) await idbPut('sessions', s);
+    for (const n of manifest.notes || []) await idbPut('notes', n);
+    for (const st of manifest.settings || []) await idbPut('settings', st);
+
+    let i = 0;
+    for (const b of manifest.books || []) {
+      i++;
+      progressEl.textContent = `Restauration : « ${b.title} » (${i}/${manifest.books.length})…`;
+      const fileEntry = zip.file(b.fileName);
+      if (!fileEntry) continue;
+      const mime = b.format === 'epub' ? 'application/epub+zip' : 'application/pdf';
+      const fileBlob = new Blob([await fileEntry.async('arraybuffer')], { type: mime });
+      let coverBlob = null;
+      if (b.coverName) {
+        const coverEntry = zip.file(b.coverName);
+        if (coverEntry) coverBlob = new Blob([await coverEntry.async('arraybuffer')], { type: 'image/jpeg' });
+      }
+      await idbPut('books', {
+        id: b.id, title: b.title, author: b.author, format: b.format, fileBlob, coverBlob,
+        addedAt: b.addedAt, favorite: b.favorite, collection: b.collection, totalPages: b.totalPages,
+      });
+    }
+    progressEl.textContent = '';
+    toast('Bibliothèque complète restaurée.');
+    renderLibrary();
+  } catch (err) {
+    console.error(err);
+    progressEl.textContent = '';
+    toast('Archive invalide ou illisible.', 3600);
+  }
+  e.target.value = '';
+});
+
+/* ---------------------------- Persistent storage ---------------------------- */
+// Empêche le navigateur de purger IndexedDB (livres, progression) en cas de pression mémoire.
+async function ensurePersistentStorage(silent) {
+  if (!navigator.storage || !navigator.storage.persist) return 'unsupported';
+  try {
+    const already = await navigator.storage.persisted();
+    if (already) return 'granted';
+    const granted = await navigator.storage.persist();
+    if (!silent) toast(granted ? 'Stockage persistant activé : votre bibliothèque est protégée.' : 'Stockage persistant non accordé par le navigateur pour l’instant.', 3600);
+    return granted ? 'granted' : 'denied';
+  } catch (_) {
+    return 'unsupported';
+  }
+}
+
 /* ---------------------------- Storage usage ---------------------------- */
 document.getElementById('btn-storage').addEventListener('click', async () => {
   const details = document.getElementById('storage-details');
   details.innerHTML = 'Calcul en cours…';
   openModal('modal-storage');
+
+  let persistStatus = 'unsupported';
+  if (navigator.storage && navigator.storage.persisted) {
+    persistStatus = (await navigator.storage.persisted()) ? 'granted' : 'denied';
+  }
+  const persistLabel = { granted: '🔒 Activé — votre bibliothèque est protégée contre le nettoyage automatique du navigateur.',
+    denied: '⚠️ Non activé — le navigateur pourrait purger vos données hors-ligne en cas de manque d’espace.',
+    unsupported: 'Non pris en charge par ce navigateur.' }[persistStatus];
+
   if (navigator.storage && navigator.storage.estimate) {
     const { usage, quota } = await navigator.storage.estimate();
     const pct = quota ? Math.round((usage / quota) * 100) : 0;
@@ -830,8 +1061,14 @@ document.getElementById('btn-storage').addEventListener('click', async () => {
       <div class="big-num">${mb(usage)}<small> Mo utilisés sur ${mb(quota)} Mo</small></div>
       <div class="progress-track"><div class="progress-fill" style="width:${pct}%;background:${pct > 80 ? 'var(--ember)' : 'var(--moss)'}"></div></div>
       ${pct > 80 ? `<div class="goal-alert">⚠️ Le stockage approche de la limite du navigateur (${pct}%). Supprimez des livres ou exportez votre sauvegarde.</div>` : ''}
+      <div class="note-block" style="margin-top:14px;">
+        <strong>Stockage persistant</strong><br>${persistLabel}
+        ${persistStatus === 'denied' ? '<button class="btn small primary" id="request-persist-btn" style="margin-top:8px;">Activer le stockage persistant</button>' : ''}
+      </div>
       <p class="sub" style="margin-top:14px;">Le quota dépend du navigateur et de l'espace disque disponible ; il n'est pas illimité pour le stockage hors-ligne.</p>
     `;
+    const reqBtn = document.getElementById('request-persist-btn');
+    if (reqBtn) reqBtn.addEventListener('click', async () => { await ensurePersistentStorage(false); document.getElementById('btn-storage').click(); });
   } else {
     details.innerHTML = '<p class="sub">Estimation du stockage non disponible sur ce navigateur.</p>';
   }
@@ -851,7 +1088,7 @@ const READER = {
   epubBook: null, rendition: null, locationsReady: false,
   pdfDoc: null, pdfMode: 'reflow', pdfObjectUrl: null,
   reflowPages: null, // [{pageNum, text}]
-  settings: { theme: 'light', fontSize: 18, fontFamily: 'serif', lineHeight: 1.5, margins: 5, scrollMode: 'paginated', doublePage: 'off', brightness: 0 },
+  settings: { theme: 'light', fontSize: 18, fontFamily: 'serif', lineHeight: 1.5, margins: 5, scrollMode: 'paginated', doublePage: 'off', brightness: 0, textAlign: 'left', immersive: false },
   wakeLockSentinel: null,
   sessionStart: null,
   ttsActive: false, ttsQueue: [], ttsIndex: 0,
@@ -883,6 +1120,7 @@ function reflectSettingsUI() {
   document.querySelectorAll('#font-family-control button').forEach((b) => b.classList.toggle('active', b.dataset.font === s.fontFamily));
   document.querySelectorAll('#scroll-mode-control button').forEach((b) => b.classList.toggle('active', b.dataset.mode === s.scrollMode));
   document.querySelectorAll('#double-page-control button').forEach((b) => b.classList.toggle('active', b.dataset.dp === s.doublePage));
+  document.querySelectorAll('#align-control button').forEach((b) => b.classList.toggle('active', b.dataset.align === s.textAlign));
   document.getElementById('brightness-overlay').style.opacity = s.brightness / 100;
 }
 
@@ -904,6 +1142,7 @@ async function openReader(bookId) {
 
   document.getElementById('reader-view').classList.add('active');
   await loadReaderSettings();
+  document.getElementById('reader-view').classList.toggle('immersive', !!READER.settings.immersive);
 
   if (book.format === 'epub') await openEpub(book, progress);
   else await openPdf(book, progress);
@@ -928,6 +1167,21 @@ function closeReader() {
   renderLibrary();
 }
 document.getElementById('reader-close').addEventListener('click', closeReader);
+
+function toggleImmersive(force) {
+  const rv = document.getElementById('reader-view');
+  const next = typeof force === 'boolean' ? force : !rv.classList.contains('immersive');
+  rv.classList.toggle('immersive', next);
+  READER.settings.immersive = next;
+  saveReaderSettings();
+  if (next && document.documentElement.requestFullscreen) {
+    document.documentElement.requestFullscreen().catch(() => {});
+  } else if (!next && document.fullscreenElement) {
+    document.exitFullscreen().catch(() => {});
+  }
+}
+document.getElementById('reader-fullscreen-btn').addEventListener('click', () => toggleImmersive());
+document.getElementById('immersive-exit-btn').addEventListener('click', () => toggleImmersive(false));
 
 function closeAllPanels() {
   document.querySelectorAll('#settings-panel,#toc-panel,#search-panel,#notes-panel').forEach((p) => p.classList.remove('open'));
@@ -959,6 +1213,28 @@ async function openEpub(book, progress) {
 
   await READER.rendition.display(progress.location || undefined);
 
+  READER.rendition.on('rendered', () => {
+    try {
+      const contents = READER.rendition.getContents();
+      const fontCssUrl = new URL('vendor/fonts/opendyslexic.css', document.baseURI).href;
+      contents.forEach((c) => {
+        if (c.document._tapBound) return;
+        c.document._tapBound = true;
+        try { c.addStylesheet(fontCssUrl); } catch (_) {}
+        let tsx = 0, tsy = 0, tst = 0;
+        c.document.addEventListener('touchstart', (e) => {
+          if (e.touches.length !== 1) return;
+          tsx = e.touches[0].clientX; tsy = e.touches[0].clientY; tst = Date.now();
+        }, { passive: true });
+        c.document.addEventListener('touchend', (e) => {
+          const dx = e.changedTouches[0].clientX - tsx;
+          const dy = e.changedTouches[0].clientY - tsy;
+          if (Math.abs(dx) < 12 && Math.abs(dy) < 12 && Date.now() - tst < 350) toggleImmersive();
+        }, { passive: true });
+      });
+    } catch (_) {}
+  });
+
   READER.epubBook.locations.generate(700).then(() => {
     READER.locationsReady = true;
   }).catch(() => {});
@@ -984,6 +1260,7 @@ function applyEpubStyleSettings() {
   r.themes.font(FONT_STACKS[s.fontFamily]);
   r.themes.override('line-height', s.lineHeight);
   r.themes.override('letter-spacing', s.fontFamily === 'dyslexic' ? '0.04em' : 'normal');
+  r.themes.override('text-align', s.textAlign === 'justify' ? 'justify' : 'left');
   const marginPct = s.margins * 2;
   r.themes.override('padding', `0 ${marginPct}%`);
   r.spread(s.doublePage === 'on' ? 'auto' : 'none');
@@ -1319,6 +1596,10 @@ document.querySelectorAll('#double-page-control button').forEach((b) => b.addEve
   if (READER.format === 'epub') applyEpubStyleSettings();
   else if (READER.pdfMode === 'original') renderPdfOriginal(false);
 }));
+document.querySelectorAll('#align-control button').forEach((b) => b.addEventListener('click', () => {
+  READER.settings.textAlign = b.dataset.align; reflectSettingsUI(); saveReaderSettings();
+  if (READER.format === 'epub') applyEpubStyleSettings(); else applyPdfTypography();
+}));
 function applyPdfTypography() {
   const content = document.getElementById('pdf-reflow-content');
   const s = READER.settings;
@@ -1327,6 +1608,9 @@ function applyPdfTypography() {
   content.style.fontFamily = FONT_STACKS[s.fontFamily];
   content.style.letterSpacing = s.fontFamily === 'dyslexic' ? '0.04em' : 'normal';
   content.style.padding = `0 ${s.margins * 2}%`;
+  content.style.textAlign = s.textAlign === 'justify' ? 'justify' : 'left';
+  content.style.hyphens = s.textAlign === 'justify' ? 'auto' : 'manual';
+  content.style.webkitHyphens = s.textAlign === 'justify' ? 'auto' : 'manual';
   applyPdfReflowLayout();
 }
 function applyThemeToChrome() {
@@ -1464,15 +1748,16 @@ function advanceForTTS() {
 /* ---------------------------- Swipe navigation (mobile/tablette) ---------------------------- */
 (function setupSwipe() {
   const body = document.getElementById('reader-body');
-  let startX = null, startY = null;
+  let startX = null, startY = null, startT = 0;
   body.addEventListener('touchstart', (e) => {
     if (e.touches.length !== 1) return;
-    startX = e.touches[0].clientX; startY = e.touches[0].clientY;
+    startX = e.touches[0].clientX; startY = e.touches[0].clientY; startT = Date.now();
   }, { passive: true });
   body.addEventListener('touchend', (e) => {
     if (startX === null) return;
     const dx = e.changedTouches[0].clientX - startX;
     const dy = e.changedTouches[0].clientY - startY;
+    const elapsed = Date.now() - startT;
     if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) {
       if (READER.settings.scrollMode !== 'paginated') { startX = null; return; }
       if (READER.format === 'epub') { dx < 0 ? READER.rendition.next() : READER.rendition.prev(); }
@@ -1480,6 +1765,9 @@ function advanceForTTS() {
         const wrap = document.getElementById('pdf-reflow-wrap');
         wrap.scrollLeft += dx < 0 ? wrap.clientWidth : -wrap.clientWidth;
       }
+    } else if (Math.abs(dx) < 12 && Math.abs(dy) < 12 && elapsed < 350) {
+      // Tap simple sans déplacement : bascule l'affichage des barres.
+      toggleImmersive();
     }
     startX = null; startY = null;
   }, { passive: true });
@@ -1496,22 +1784,37 @@ function throttle(fn, ms) { let last = 0; return (...a) => { const now = Date.no
 
 async function getGoal() {
   const g = await idbGet('settings', 'reading-goal');
-  return g ? g.value : { booksPerWeek: 1, hoursPerWeek: 3 };
+  return g ? Object.assign({ booksPerWeek: 1, hoursPerWeek: 3, linkedBookIds: [] }, g.value) : { booksPerWeek: 1, hoursPerWeek: 3, linkedBookIds: [] };
 }
-async function setGoal(booksPerWeek, hoursPerWeek) {
-  await idbPut('settings', { key: 'reading-goal', value: { booksPerWeek, hoursPerWeek } });
+async function setGoal(booksPerWeek, hoursPerWeek, linkedBookIds) {
+  await idbPut('settings', { key: 'reading-goal', value: { booksPerWeek, hoursPerWeek, linkedBookIds: linkedBookIds || [] } });
+}
+
+async function renderGoalBooksChecklist(linked) {
+  const books = await idbGetAll('books');
+  const box = document.getElementById('goal-books-list');
+  box.innerHTML = books.length ? '' : '<p class="sub">Aucun livre dans la bibliothèque pour l’instant.</p>';
+  books.forEach((b) => {
+    const row = document.createElement('label');
+    row.style.cssText = 'display:flex;align-items:center;gap:8px;padding:5px 2px;font-size:12.5px;cursor:pointer;';
+    const checked = linked.includes(b.id) ? 'checked' : '';
+    row.innerHTML = `<input type="checkbox" value="${b.id}" ${checked}> <span>${escapeHtml(b.title)}</span>`;
+    box.appendChild(row);
+  });
 }
 
 document.getElementById('btn-edit-goal').addEventListener('click', async () => {
   const g = await getGoal();
   document.getElementById('goal-books').value = g.booksPerWeek;
   document.getElementById('goal-hours').value = g.hoursPerWeek;
+  await renderGoalBooksChecklist(g.linkedBookIds || []);
   openModal('modal-goal');
 });
 document.getElementById('save-goal-btn').addEventListener('click', async () => {
   const books = Math.max(0, +document.getElementById('goal-books').value || 0);
   const hours = Math.max(0, +document.getElementById('goal-hours').value || 0);
-  await setGoal(books, hours);
+  const linkedBookIds = Array.from(document.querySelectorAll('#goal-books-list input:checked')).map((i) => i.value);
+  await setGoal(books, hours, linkedBookIds);
   closeModal('modal-goal');
   toast('Objectif mis à jour.');
   renderStats();
@@ -1625,6 +1928,25 @@ async function renderStats() {
         <div><strong style="font-size:13px;">${escapeHtml(s.title)}</strong><br><span class="sub">${escapeHtml(s.author)}</span></div>
       </div>
     `, () => openReader(s.id)));
+  }
+
+  if (goal.linkedBookIds && goal.linkedBookIds.length) {
+    const linkedBooks = books.filter((b) => goal.linkedBookIds.includes(b.id));
+    const finishedCount = linkedBooks.filter((b) => {
+      const p = progresses.find((pp) => pp.bookId === b.id);
+      return p && p.percent >= 98;
+    }).length;
+    const rows = linkedBooks.map((b) => {
+      const p = progresses.find((pp) => pp.bookId === b.id) || { percent: 0 };
+      return `<div style="display:flex;justify-content:space-between;font-size:12px;margin-top:6px;">
+        <span>${escapeHtml(b.title)}</span><span style="opacity:.6;">${Math.round(p.percent || 0)}%</span>
+      </div>`;
+    }).join('');
+    grid.appendChild(makeCard(`
+      <h3>Livres de l'objectif</h3>
+      <div class="big-num">${finishedCount}<small> / ${linkedBooks.length} terminés</small></div>
+      ${rows}
+    `));
   }
 
   if (!books.length) {
