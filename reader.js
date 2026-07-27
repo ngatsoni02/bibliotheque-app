@@ -8,7 +8,7 @@ const READER = {
   epubBook: null, rendition: null, locationsReady: false,
   pdfDoc: null, pdfMode: 'reflow', pdfObjectUrl: null,
   reflowPages: null, // [{pageNum, text}]
-  settings: { theme: 'light', fontSize: 18, fontFamily: 'serif', lineHeight: 1.5, margins: 5, scrollMode: 'paginated', doublePage: 'off', brightness: 0 },
+  settings: { theme: 'light', fontSize: 18, fontFamily: 'serif', lineHeight: 1.5, margins: 5, scrollMode: 'paginated', doublePage: 'off', brightness: 0, textAlign: 'left', immersive: false },
   wakeLockSentinel: null,
   sessionStart: null,
   ttsActive: false, ttsQueue: [], ttsIndex: 0,
@@ -40,6 +40,7 @@ function reflectSettingsUI() {
   document.querySelectorAll('#font-family-control button').forEach((b) => b.classList.toggle('active', b.dataset.font === s.fontFamily));
   document.querySelectorAll('#scroll-mode-control button').forEach((b) => b.classList.toggle('active', b.dataset.mode === s.scrollMode));
   document.querySelectorAll('#double-page-control button').forEach((b) => b.classList.toggle('active', b.dataset.dp === s.doublePage));
+  document.querySelectorAll('#align-control button').forEach((b) => b.classList.toggle('active', b.dataset.align === s.textAlign));
   document.getElementById('brightness-overlay').style.opacity = s.brightness / 100;
 }
 
@@ -61,6 +62,7 @@ async function openReader(bookId) {
 
   document.getElementById('reader-view').classList.add('active');
   await loadReaderSettings();
+  document.getElementById('reader-view').classList.toggle('immersive', !!READER.settings.immersive);
 
   if (book.format === 'epub') await openEpub(book, progress);
   else await openPdf(book, progress);
@@ -85,6 +87,21 @@ function closeReader() {
   renderLibrary();
 }
 document.getElementById('reader-close').addEventListener('click', closeReader);
+
+function toggleImmersive(force) {
+  const rv = document.getElementById('reader-view');
+  const next = typeof force === 'boolean' ? force : !rv.classList.contains('immersive');
+  rv.classList.toggle('immersive', next);
+  READER.settings.immersive = next;
+  saveReaderSettings();
+  if (next && document.documentElement.requestFullscreen) {
+    document.documentElement.requestFullscreen().catch(() => {});
+  } else if (!next && document.fullscreenElement) {
+    document.exitFullscreen().catch(() => {});
+  }
+}
+document.getElementById('reader-fullscreen-btn').addEventListener('click', () => toggleImmersive());
+document.getElementById('immersive-exit-btn').addEventListener('click', () => toggleImmersive(false));
 
 function closeAllPanels() {
   document.querySelectorAll('#settings-panel,#toc-panel,#search-panel,#notes-panel').forEach((p) => p.classList.remove('open'));
@@ -116,6 +133,28 @@ async function openEpub(book, progress) {
 
   await READER.rendition.display(progress.location || undefined);
 
+  READER.rendition.on('rendered', () => {
+    try {
+      const contents = READER.rendition.getContents();
+      const fontCssUrl = new URL('vendor/fonts/opendyslexic.css', document.baseURI).href;
+      contents.forEach((c) => {
+        if (c.document._tapBound) return;
+        c.document._tapBound = true;
+        try { c.addStylesheet(fontCssUrl); } catch (_) {}
+        let tsx = 0, tsy = 0, tst = 0;
+        c.document.addEventListener('touchstart', (e) => {
+          if (e.touches.length !== 1) return;
+          tsx = e.touches[0].clientX; tsy = e.touches[0].clientY; tst = Date.now();
+        }, { passive: true });
+        c.document.addEventListener('touchend', (e) => {
+          const dx = e.changedTouches[0].clientX - tsx;
+          const dy = e.changedTouches[0].clientY - tsy;
+          if (Math.abs(dx) < 12 && Math.abs(dy) < 12 && Date.now() - tst < 350) toggleImmersive();
+        }, { passive: true });
+      });
+    } catch (_) {}
+  });
+
   READER.epubBook.locations.generate(700).then(() => {
     READER.locationsReady = true;
   }).catch(() => {});
@@ -141,6 +180,7 @@ function applyEpubStyleSettings() {
   r.themes.font(FONT_STACKS[s.fontFamily]);
   r.themes.override('line-height', s.lineHeight);
   r.themes.override('letter-spacing', s.fontFamily === 'dyslexic' ? '0.04em' : 'normal');
+  r.themes.override('text-align', s.textAlign === 'justify' ? 'justify' : 'left');
   const marginPct = s.margins * 2;
   r.themes.override('padding', `0 ${marginPct}%`);
   r.spread(s.doublePage === 'on' ? 'auto' : 'none');
@@ -476,6 +516,10 @@ document.querySelectorAll('#double-page-control button').forEach((b) => b.addEve
   if (READER.format === 'epub') applyEpubStyleSettings();
   else if (READER.pdfMode === 'original') renderPdfOriginal(false);
 }));
+document.querySelectorAll('#align-control button').forEach((b) => b.addEventListener('click', () => {
+  READER.settings.textAlign = b.dataset.align; reflectSettingsUI(); saveReaderSettings();
+  if (READER.format === 'epub') applyEpubStyleSettings(); else applyPdfTypography();
+}));
 function applyPdfTypography() {
   const content = document.getElementById('pdf-reflow-content');
   const s = READER.settings;
@@ -484,6 +528,9 @@ function applyPdfTypography() {
   content.style.fontFamily = FONT_STACKS[s.fontFamily];
   content.style.letterSpacing = s.fontFamily === 'dyslexic' ? '0.04em' : 'normal';
   content.style.padding = `0 ${s.margins * 2}%`;
+  content.style.textAlign = s.textAlign === 'justify' ? 'justify' : 'left';
+  content.style.hyphens = s.textAlign === 'justify' ? 'auto' : 'manual';
+  content.style.webkitHyphens = s.textAlign === 'justify' ? 'auto' : 'manual';
   applyPdfReflowLayout();
 }
 function applyThemeToChrome() {
@@ -621,15 +668,16 @@ function advanceForTTS() {
 /* ---------------------------- Swipe navigation (mobile/tablette) ---------------------------- */
 (function setupSwipe() {
   const body = document.getElementById('reader-body');
-  let startX = null, startY = null;
+  let startX = null, startY = null, startT = 0;
   body.addEventListener('touchstart', (e) => {
     if (e.touches.length !== 1) return;
-    startX = e.touches[0].clientX; startY = e.touches[0].clientY;
+    startX = e.touches[0].clientX; startY = e.touches[0].clientY; startT = Date.now();
   }, { passive: true });
   body.addEventListener('touchend', (e) => {
     if (startX === null) return;
     const dx = e.changedTouches[0].clientX - startX;
     const dy = e.changedTouches[0].clientY - startY;
+    const elapsed = Date.now() - startT;
     if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) {
       if (READER.settings.scrollMode !== 'paginated') { startX = null; return; }
       if (READER.format === 'epub') { dx < 0 ? READER.rendition.next() : READER.rendition.prev(); }
@@ -637,6 +685,9 @@ function advanceForTTS() {
         const wrap = document.getElementById('pdf-reflow-wrap');
         wrap.scrollLeft += dx < 0 ? wrap.clientWidth : -wrap.clientWidth;
       }
+    } else if (Math.abs(dx) < 12 && Math.abs(dy) < 12 && elapsed < 350) {
+      // Tap simple sans déplacement : bascule l'affichage des barres.
+      toggleImmersive();
     }
     startX = null; startY = null;
   }, { passive: true });
