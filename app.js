@@ -1,5 +1,5 @@
 /* =========================================================================
-   Bibliothèque — Application de lecture EPUB/PDF (PWA, 100% locale)
+   Elikia Lecture — Application de lecture EPUB/PDF (PWA, 100% locale)
    Toutes les données (livres, progression, notes, objectifs) restent
    sur l'appareil : IndexedDB pour les fichiers, aucune requête serveur.
    ========================================================================= */
@@ -10,7 +10,7 @@ if ('serviceWorker' in navigator) {
   });
 }
 if (window.pdfjsLib) {
-  pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+  pdfjsLib.GlobalWorkerOptions.workerSrc = 'vendor/pdf.worker.min.js';
 }
 
 /* ---------------------------- IndexedDB ---------------------------- */
@@ -83,10 +83,36 @@ function toast(msg, ms = 2600) {
 }
 function openModal(id) { document.getElementById(id).classList.add('active'); }
 function closeModal(id) { document.getElementById(id).classList.remove('active'); }
+
+function confirmDialog(message, opts = {}) {
+  return new Promise((resolve) => {
+    document.getElementById('confirm-title').textContent = opts.title || 'Confirmer';
+    document.getElementById('confirm-message').textContent = message;
+    document.getElementById('confirm-ok-btn').textContent = opts.okLabel || 'Confirmer';
+    document.getElementById('confirm-cancel-btn').textContent = opts.cancelLabel || 'Annuler';
+    openModal('modal-confirm');
+    const okBtn = document.getElementById('confirm-ok-btn');
+    const cancelBtn = document.getElementById('confirm-cancel-btn');
+    const cleanup = (result) => {
+      okBtn.removeEventListener('click', onOk);
+      cancelBtn.removeEventListener('click', onCancel);
+      closeModal('modal-confirm');
+      resolve(result);
+    };
+    const onOk = () => cleanup(true);
+    const onCancel = () => cleanup(false);
+    okBtn.addEventListener('click', onOk);
+    cancelBtn.addEventListener('click', onCancel);
+  });
+}
 document.querySelectorAll('[data-close-modal]').forEach((b) =>
   b.addEventListener('click', () => closeModal(b.dataset.closeModal)));
 document.querySelectorAll('.modal-overlay').forEach((ov) =>
-  ov.addEventListener('click', (e) => { if (e.target === ov) ov.classList.remove('active'); }));
+  ov.addEventListener('click', (e) => {
+    if (e.target !== ov) return;
+    if (ov.id === 'modal-confirm') { document.getElementById('confirm-cancel-btn').click(); return; }
+    ov.classList.remove('active');
+  }));
 
 function switchView(viewId) {
   document.querySelectorAll('.view').forEach((v) => v.classList.remove('active'));
@@ -132,6 +158,7 @@ async function handleFiles(fileList) {
   fileInput.value = '';
   closeModal('modal-import');
   renderLibrary();
+  ensurePersistentStorage(true);
 }
 
 async function importEpub(file) {
@@ -255,7 +282,8 @@ async function renderLibrary() {
     });
     card.querySelector('.book-delete').addEventListener('click', async (e) => {
       e.stopPropagation();
-      if (confirm(`Supprimer « ${book.title} » de la bibliothèque ?`)) {
+      const ok = await confirmDialog(`Supprimer « ${book.title} » de la bibliothèque ? Cette action est irréversible.`, { title: 'Supprimer ce livre ?', okLabel: 'Supprimer' });
+      if (ok) {
         await idbDelete('books', book.id);
         await idbDelete('progress', book.id);
         await idbDelete('reflowCache', book.id);
@@ -309,11 +337,125 @@ document.getElementById('import-backup-input').addEventListener('change', async 
   e.target.value = '';
 });
 
+/* ---- Sauvegarde complète (.zip, avec les fichiers de livres) — tout reste local ---- */
+document.getElementById('export-full-backup-btn').addEventListener('click', async () => {
+  const progressEl = document.getElementById('full-backup-progress');
+  try {
+    const [books, progress, sessions, notes, settings] = await Promise.all([
+      idbGetAll('books'), idbGetAll('progress'), idbGetAll('sessions'), idbGetAll('notes'), idbGetAll('settings'),
+    ]);
+    const zip = new JSZip();
+    const manifestBooks = [];
+    let i = 0;
+    for (const b of books) {
+      i++;
+      progressEl.textContent = `Compression : « ${b.title} » (${i}/${books.length})…`;
+      const ext = b.format === 'epub' ? 'epub' : 'pdf';
+      const fileName = `files/${b.id}.${ext}`;
+      zip.file(fileName, b.fileBlob);
+      let coverName = null;
+      if (b.coverBlob) {
+        coverName = `covers/${b.id}.jpg`;
+        zip.file(coverName, b.coverBlob);
+      }
+      manifestBooks.push({
+        id: b.id, title: b.title, author: b.author, format: b.format,
+        addedAt: b.addedAt, favorite: b.favorite, collection: b.collection, totalPages: b.totalPages,
+        fileName, coverName,
+      });
+    }
+    progressEl.textContent = 'Finalisation de l’archive…';
+    const manifest = { version: 1, exportedAt: Date.now(), books: manifestBooks, progress, sessions, notes, settings };
+    zip.file('manifest.json', JSON.stringify(manifest, null, 2));
+    const blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 6 } },
+      (meta) => { progressEl.textContent = `Compression… ${Math.round(meta.percent)}%`; });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `elikia-lecture-bibliotheque-${dateKey()}.zip`;
+    a.click();
+    progressEl.textContent = '';
+    toast('Bibliothèque complète exportée.');
+  } catch (err) {
+    console.error(err);
+    progressEl.textContent = '';
+    toast("Échec de l'export complet (bibliothèque peut-être trop volumineuse pour la mémoire du navigateur).", 4200);
+  }
+});
+document.getElementById('import-full-backup-btn').addEventListener('click', () => document.getElementById('import-full-backup-input').click());
+document.getElementById('import-full-backup-input').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const progressEl = document.getElementById('full-backup-progress');
+  try {
+    progressEl.textContent = 'Lecture de l’archive…';
+    const zip = await JSZip.loadAsync(file);
+    const manifestEntry = zip.file('manifest.json');
+    if (!manifestEntry) throw new Error('manifest.json manquant dans l’archive');
+    const manifest = JSON.parse(await manifestEntry.async('string'));
+
+    for (const p of manifest.progress || []) await idbPut('progress', p);
+    for (const s of manifest.sessions || []) await idbPut('sessions', s);
+    for (const n of manifest.notes || []) await idbPut('notes', n);
+    for (const st of manifest.settings || []) await idbPut('settings', st);
+
+    let i = 0;
+    for (const b of manifest.books || []) {
+      i++;
+      progressEl.textContent = `Restauration : « ${b.title} » (${i}/${manifest.books.length})…`;
+      const fileEntry = zip.file(b.fileName);
+      if (!fileEntry) continue;
+      const mime = b.format === 'epub' ? 'application/epub+zip' : 'application/pdf';
+      const fileBlob = new Blob([await fileEntry.async('arraybuffer')], { type: mime });
+      let coverBlob = null;
+      if (b.coverName) {
+        const coverEntry = zip.file(b.coverName);
+        if (coverEntry) coverBlob = new Blob([await coverEntry.async('arraybuffer')], { type: 'image/jpeg' });
+      }
+      await idbPut('books', {
+        id: b.id, title: b.title, author: b.author, format: b.format, fileBlob, coverBlob,
+        addedAt: b.addedAt, favorite: b.favorite, collection: b.collection, totalPages: b.totalPages,
+      });
+    }
+    progressEl.textContent = '';
+    toast('Bibliothèque complète restaurée.');
+    renderLibrary();
+  } catch (err) {
+    console.error(err);
+    progressEl.textContent = '';
+    toast('Archive invalide ou illisible.', 3600);
+  }
+  e.target.value = '';
+});
+
+/* ---------------------------- Persistent storage ---------------------------- */
+// Empêche le navigateur de purger IndexedDB (livres, progression) en cas de pression mémoire.
+async function ensurePersistentStorage(silent) {
+  if (!navigator.storage || !navigator.storage.persist) return 'unsupported';
+  try {
+    const already = await navigator.storage.persisted();
+    if (already) return 'granted';
+    const granted = await navigator.storage.persist();
+    if (!silent) toast(granted ? 'Stockage persistant activé : votre bibliothèque est protégée.' : 'Stockage persistant non accordé par le navigateur pour l’instant.', 3600);
+    return granted ? 'granted' : 'denied';
+  } catch (_) {
+    return 'unsupported';
+  }
+}
+
 /* ---------------------------- Storage usage ---------------------------- */
 document.getElementById('btn-storage').addEventListener('click', async () => {
   const details = document.getElementById('storage-details');
   details.innerHTML = 'Calcul en cours…';
   openModal('modal-storage');
+
+  let persistStatus = 'unsupported';
+  if (navigator.storage && navigator.storage.persisted) {
+    persistStatus = (await navigator.storage.persisted()) ? 'granted' : 'denied';
+  }
+  const persistLabel = { granted: '🔒 Activé — votre bibliothèque est protégée contre le nettoyage automatique du navigateur.',
+    denied: '⚠️ Non activé — le navigateur pourrait purger vos données hors-ligne en cas de manque d’espace.',
+    unsupported: 'Non pris en charge par ce navigateur.' }[persistStatus];
+
   if (navigator.storage && navigator.storage.estimate) {
     const { usage, quota } = await navigator.storage.estimate();
     const pct = quota ? Math.round((usage / quota) * 100) : 0;
@@ -322,8 +464,14 @@ document.getElementById('btn-storage').addEventListener('click', async () => {
       <div class="big-num">${mb(usage)}<small> Mo utilisés sur ${mb(quota)} Mo</small></div>
       <div class="progress-track"><div class="progress-fill" style="width:${pct}%;background:${pct > 80 ? 'var(--ember)' : 'var(--moss)'}"></div></div>
       ${pct > 80 ? `<div class="goal-alert">⚠️ Le stockage approche de la limite du navigateur (${pct}%). Supprimez des livres ou exportez votre sauvegarde.</div>` : ''}
+      <div class="note-block" style="margin-top:14px;">
+        <strong>Stockage persistant</strong><br>${persistLabel}
+        ${persistStatus === 'denied' ? '<button class="btn small primary" id="request-persist-btn" style="margin-top:8px;">Activer le stockage persistant</button>' : ''}
+      </div>
       <p class="sub" style="margin-top:14px;">Le quota dépend du navigateur et de l'espace disque disponible ; il n'est pas illimité pour le stockage hors-ligne.</p>
     `;
+    const reqBtn = document.getElementById('request-persist-btn');
+    if (reqBtn) reqBtn.addEventListener('click', async () => { await ensurePersistentStorage(false); document.getElementById('btn-storage').click(); });
   } else {
     details.innerHTML = '<p class="sub">Estimation du stockage non disponible sur ce navigateur.</p>';
   }
