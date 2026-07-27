@@ -4,22 +4,37 @@
 
 async function getGoal() {
   const g = await idbGet('settings', 'reading-goal');
-  return g ? g.value : { booksPerWeek: 1, hoursPerWeek: 3 };
+  return g ? Object.assign({ booksPerWeek: 1, hoursPerWeek: 3, linkedBookIds: [] }, g.value) : { booksPerWeek: 1, hoursPerWeek: 3, linkedBookIds: [] };
 }
-async function setGoal(booksPerWeek, hoursPerWeek) {
-  await idbPut('settings', { key: 'reading-goal', value: { booksPerWeek, hoursPerWeek } });
+async function setGoal(booksPerWeek, hoursPerWeek, linkedBookIds) {
+  await idbPut('settings', { key: 'reading-goal', value: { booksPerWeek, hoursPerWeek, linkedBookIds: linkedBookIds || [] } });
+}
+
+async function renderGoalBooksChecklist(linked) {
+  const books = await idbGetAll('books');
+  const box = document.getElementById('goal-books-list');
+  box.innerHTML = books.length ? '' : '<p class="sub">Aucun livre dans la bibliothèque pour l’instant.</p>';
+  books.forEach((b) => {
+    const row = document.createElement('label');
+    row.style.cssText = 'display:flex;align-items:center;gap:8px;padding:5px 2px;font-size:12.5px;cursor:pointer;';
+    const checked = linked.includes(b.id) ? 'checked' : '';
+    row.innerHTML = `<input type="checkbox" value="${b.id}" ${checked}> <span>${escapeHtml(b.title)}</span>`;
+    box.appendChild(row);
+  });
 }
 
 document.getElementById('btn-edit-goal').addEventListener('click', async () => {
   const g = await getGoal();
   document.getElementById('goal-books').value = g.booksPerWeek;
   document.getElementById('goal-hours').value = g.hoursPerWeek;
+  await renderGoalBooksChecklist(g.linkedBookIds || []);
   openModal('modal-goal');
 });
 document.getElementById('save-goal-btn').addEventListener('click', async () => {
   const books = Math.max(0, +document.getElementById('goal-books').value || 0);
   const hours = Math.max(0, +document.getElementById('goal-hours').value || 0);
-  await setGoal(books, hours);
+  const linkedBookIds = Array.from(document.querySelectorAll('#goal-books-list input:checked')).map((i) => i.value);
+  await setGoal(books, hours, linkedBookIds);
   closeModal('modal-goal');
   toast('Objectif mis à jour.');
   renderStats();
@@ -133,6 +148,25 @@ async function renderStats() {
         <div><strong style="font-size:13px;">${escapeHtml(s.title)}</strong><br><span class="sub">${escapeHtml(s.author)}</span></div>
       </div>
     `, () => openReader(s.id)));
+  }
+
+  if (goal.linkedBookIds && goal.linkedBookIds.length) {
+    const linkedBooks = books.filter((b) => goal.linkedBookIds.includes(b.id));
+    const finishedCount = linkedBooks.filter((b) => {
+      const p = progresses.find((pp) => pp.bookId === b.id);
+      return p && p.percent >= 98;
+    }).length;
+    const rows = linkedBooks.map((b) => {
+      const p = progresses.find((pp) => pp.bookId === b.id) || { percent: 0 };
+      return `<div style="display:flex;justify-content:space-between;font-size:12px;margin-top:6px;">
+        <span>${escapeHtml(b.title)}</span><span style="opacity:.6;">${Math.round(p.percent || 0)}%</span>
+      </div>`;
+    }).join('');
+    grid.appendChild(makeCard(`
+      <h3>Livres de l'objectif</h3>
+      <div class="big-num">${finishedCount}<small> / ${linkedBooks.length} terminés</small></div>
+      ${rows}
+    `));
   }
 
   if (!books.length) {
